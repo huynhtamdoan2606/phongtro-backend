@@ -164,6 +164,7 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import mysql.connector
+from mysql.connector import pooling
 import os
 import cloudinary
 import cloudinary.uploader
@@ -190,16 +191,38 @@ cloudinary.config(
 #     'password': '', 
 #     'database': 'TonyDzungHouseDB'
 # }
-DB_CONFIG = {
+# DB_CONFIG = {
+#     'host': 'gateway01.ap-southeast-1.prod.aws.tidbcloud.com',
+#     'port': 4000, 
+#     'user': '2sPr4a2fvv6hnJs.root',
+#     'password': 'ZDUpibQEnxtgdbh8',
+#     'database': 'test' # TiDB mặc định tên database là 'test'
+# }
+
+# def get_db_connection():
+#     return mysql.connector.connect(**DB_CONFIG)
+# ==========================================
+# 2. CẤU HÌNH MYSQL VỚI CONNECTION POOL (SIÊU TỐC)
+# ==========================================
+dbconfig = {
     'host': 'gateway01.ap-southeast-1.prod.aws.tidbcloud.com',
     'port': 4000, 
     'user': '2sPr4a2fvv6hnJs.root',
     'password': 'ZDUpibQEnxtgdbh8',
-    'database': 'test' # TiDB mặc định tên database là 'test'
+    'database': 'test'
 }
 
+# Tạo sẵn một "hồ bơi" chứa 5 kết nối luôn mở tới Singapore
+db_pool = pooling.MySQLConnectionPool(
+    pool_name="tonydzung_pool",
+    pool_size=5,
+    pool_reset_session=True,
+    **dbconfig
+)
+
 def get_db_connection():
-    return mysql.connector.connect(**DB_CONFIG)
+    # Thay vì kết nối mới, ta chỉ việc rút 1 kết nối có sẵn từ hồ bơi ra xài (tốn 0.001 giây)
+    return db_pool.get_connection()
 
 # ==========================================
 # 3. CÁC API XỬ LÝ (KHÔNG CẦN FOLDER STATIC NỮA)
