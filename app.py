@@ -298,6 +298,18 @@ def update_room(id):
                              data['Address'], data['Bedrooms'], data['Features'], data['Status'], id))
         
         if 'imageFiles' in request.files and request.files.getlist('imageFiles')[0].filename != '':
+            cursor_dict = conn.cursor(dictionary=True)
+            cursor_dict.execute('SELECT ImageUrl FROM RoomImages WHERE RoomId=%s', (id,))
+            old_images = cursor_dict.fetchall()
+            
+            for img in old_images:
+                try:
+                    url = img['ImageUrl']
+                    parts = url.split('/')
+                    public_id = f"{parts[-2]}/{parts[-1].split('.')[0]}"
+                    cloudinary.uploader.destroy(public_id) # Tiêu hủy ảnh cũ
+                except:
+                    pass
             cursor.execute('DELETE FROM RoomImages WHERE RoomId=%s', (id,))
             
             files = request.files.getlist('imageFiles')
@@ -320,11 +332,33 @@ def update_room(id):
 def delete_room(id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True) 
+        
+        # TÌM VÀ XÓA ẢNH TRÊN CLOUDINARY TRƯỚC
+        cursor.execute('SELECT ImageUrl FROM RoomImages WHERE RoomId=%s', (id,))
+        old_images = cursor.fetchall()
+        
+        for img in old_images:
+            try:
+                url = img['ImageUrl']
+                # Cắt URL để lấy public_id 
+                parts = url.split('/')
+                folder = parts[-2] # Lấy tên thư mục
+                filename = parts[-1].split('.')[0] # Lấy tên file bỏ đuôi .jpg
+                public_id = f"{folder}/{filename}"
+                
+                # Gọi Cloudinary xóa file gốc
+                cloudinary.uploader.destroy(public_id)
+            except Exception as e:
+                print("Lỗi khi xóa ảnh Cloudinary:", e) # Bỏ qua nếu lỗi để DB vẫn được xóa
+
+        # SAU ĐÓ XÓA TRONG DATABASE (MySQL)
+        cursor = conn.cursor() # Đổi lại cursor bình thường
         cursor.execute('DELETE FROM Rooms WHERE Id=%s', (id,))
+        
         conn.commit()
         conn.close()
-        return jsonify({"message": "Xóa thành công!"})
+        return jsonify({"message": "Đã xóa phòng và dọn sạch ảnh trên Cloudinary!"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
