@@ -169,10 +169,16 @@ import os
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask import session
+import secrets
+
+
 
 app = Flask(__name__)
 CORS(app) 
 
+app.secret_key = secrets.token_hex(16) # Tạo chìa khóa bảo mật cho Session
 # ==========================================
 # 1. CẤU HÌNH CLOUDINARY (LƯU ẢNH LÊN ĐÁM MÂY)
 # ==========================================
@@ -362,19 +368,83 @@ def delete_room(id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# @app.route('/api/login', methods=['POST'])
+# def login():
+#     try:
+#         data = request.json
+#         username = data.get('username')
+#         password = data.get('password')
+        
+#         if username == 'admin' and password == '123456':
+#             return jsonify({"token": "tonydzung_secret_token_888", "message": "Đăng nhập thành công"}), 200
+#         else:
+#             return jsonify({"error": "Sai tài khoản hoặc mật khẩu!"}), 401
+#     except Exception as e:
+#         return jsonify({"error": str(e)}), 500
+# --- API ĐĂNG NHẬP (ĐÃ NÂNG CẤP ĐỂ ĐỌC MẬT KHẨU MÃ HÓA) ---
 @app.route('/api/login', methods=['POST'])
 def login():
-    try:
-        data = request.json
-        username = data.get('username')
-        password = data.get('password')
-        
-        if username == 'admin' and password == '123456':
-            return jsonify({"token": "tonydzung_secret_token_888", "message": "Đăng nhập thành công"}), 200
-        else:
-            return jsonify({"error": "Sai tài khoản hoặc mật khẩu!"}), 401
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
 
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute('SELECT * FROM Users WHERE Username = %s', (username,))
+    user = cursor.fetchone()
+    conn.close()
+
+    if user:
+        # Kiểm tra: Nếu là pass mã hóa thì dùng hàm check, nếu là pass cũ thì so sánh bằng
+        is_valid = False
+        if user['Password'].startswith('scrypt:') or user['Password'].startswith('pbkdf2:'):
+            is_valid = check_password_hash(user['Password'], password)
+        else:
+            is_valid = (user['Password'] == password) # Dành cho pass 'temp_password' ban đầu
+
+        if is_valid:
+            return jsonify({"message": "Đăng nhập thành công", "token": "login_success_secure"}), 200
+    
+    return jsonify({"error": "Tên đăng nhập hoặc mật khẩu không đúng"}), 401
+
+
+# --- API ĐỔI MẬT KHẨU MỚI ---
+@app.route('/api/change-password', methods=['POST'])
+def change_password():
+    data = request.json
+    username = data.get('username')
+    old_password = data.get('old_password')
+    new_password = data.get('new_password')
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute('SELECT * FROM Users WHERE Username = %s', (username,))
+    user = cursor.fetchone()
+
+    if not user:
+        conn.close()
+        return jsonify({"error": "Không tìm thấy tài khoản!"}), 404
+
+    # 1. Kiểm tra mật khẩu cũ có đúng không
+    is_valid = False
+    if user['Password'].startswith('scrypt:') or user['Password'].startswith('pbkdf2:'):
+        is_valid = check_password_hash(user['Password'], old_password)
+    else:
+        is_valid = (user['Password'] == old_password)
+
+    if not is_valid:
+        conn.close()
+        return jsonify({"error": "Mật khẩu cũ không chính xác!"}), 401
+
+    # 2. Mã hóa mật khẩu mới
+    hashed_new_password = generate_password_hash(new_password)
+
+    # 3. Lưu vào Database
+    cursor.execute('UPDATE Users SET Password = %s WHERE Username = %s', (hashed_new_password, username))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": "Đổi mật khẩu thành công!"}), 200
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+
